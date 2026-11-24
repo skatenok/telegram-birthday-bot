@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     CallbackQuery,
+    ForceReply,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -139,9 +140,10 @@ async def _handle_pet_add(
 
     if not args:
         await state.set_state(AddPet.waiting_name)
-        await message.reply(
-            "Как зовут питомца? Напишите кличку.\n"
-            "Дату спрошу следующим сообщением. Отмена — /cancel"
+        await message.answer(
+            "Как зовут питомца? Напишите кличку ответом на это сообщение.\n"
+            "Дату спрошу следующим сообщением. Отмена — /cancel",
+            reply_markup=_force_reply("Кличка"),
         )
         return
 
@@ -154,10 +156,12 @@ async def _handle_pet_add(
             if normalized:
                 await state.update_data(pet_name=normalized)
                 await state.set_state(AddPet.waiting_date)
-                await message.reply(
+                await message.answer(
                     f"Записываю питомца «{escape(normalized)}».\n"
-                    "Теперь дата рождения: <code>12.05</code> или <code>12.05.2020</code>.\n"
-                    "Можно словами: <code>12 мая 2020</code>. Отмена — /cancel"
+                    "Теперь дата рождения ответом на это сообщение: "
+                    "<code>12.05</code> или <code>12.05.2020</code>.\n"
+                    "Можно словами: <code>12 мая 2020</code>. Отмена — /cancel",
+                    reply_markup=_force_reply("Дата рождения"),
                 )
                 return
 
@@ -219,6 +223,15 @@ async def _edit_or_answer(callback: CallbackQuery, text: str) -> None:
         await callback.message.answer(text)
 
 
+def _force_reply(placeholder: str) -> ForceReply:
+    """ForceReply нужен, чтобы ответ пользователя был реплаем на сообщение бота.
+
+    При включённом privacy mode Telegram не присылает боту обычные сообщения,
+    но ответы на его сообщения приходят всегда.
+    """
+    return ForceReply(force_reply=True, input_field_placeholder=placeholder)
+
+
 @router.message(Command("add", "добавить"))
 async def cmd_add(
     message: Message,
@@ -263,10 +276,11 @@ async def cmd_add(
                     name=normalized, user_id=target.id if target else None
                 )
                 await state.set_state(AddBirthday.waiting_date)
-                await message.reply(
+                await message.answer(
                     f"Записываю «{escape(normalized)}».\n"
                     "Теперь дата рождения: <code>12.05</code> или <code>12.05.1990</code>.\n"
-                    "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel"
+                    "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel",
+                    reply_markup=_force_reply("Дата рождения"),
                 )
                 return
 
@@ -309,6 +323,12 @@ async def cmd_add(
     F.data.in_({"add:self", "add:name", "add:reply", "add:cancel"})
 )
 async def add_choice_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.message is None:
+        await callback.answer(
+            "Сообщение недоступно. Начните заново: /add", show_alert=True
+        )
+        return
+
     data = await state.get_data()
     initiator = data.get("initiator")
 
@@ -331,9 +351,10 @@ async def add_choice_callback(callback: CallbackQuery, state: FSMContext) -> Non
         await state.set_state(AddBirthday.waiting_name)
         await state.update_data(name=None, user_id=None)
         await callback.answer()
-        await _edit_or_answer(
-            callback,
-            "Напишите имя. Дату спрошу следующим сообщением. Отмена — /cancel",
+        await _edit_or_answer(callback, "Хорошо, вводим имя.")
+        await callback.message.answer(
+            "Напишите имя ответом на это сообщение. Отмена — /cancel",
+            reply_markup=_force_reply("Имя"),
         )
         return
 
@@ -353,17 +374,22 @@ async def add_choice_callback(callback: CallbackQuery, state: FSMContext) -> Non
         )
         await state.set_state(AddBirthday.waiting_name)
         await state.update_data(name=None, user_id=None)
-        await _edit_or_answer(callback, "Напишите имя. Отмена — /cancel")
+        await _edit_or_answer(callback, "Вводим имя.")
+        await callback.message.answer(
+            "Напишите имя ответом на это сообщение. Отмена — /cancel",
+            reply_markup=_force_reply("Имя"),
+        )
         return
 
     await state.update_data(name=name, user_id=user_id)
     await state.set_state(AddBirthday.waiting_date)
     await callback.answer()
-    await _edit_or_answer(
-        callback,
-        f"Записываем <b>{escape(name)}</b>.\n"
-        "Теперь дата рождения: <code>12.05</code> или <code>12.05.1990</code>.\n"
+    await _edit_or_answer(callback, f"Кого добавляем? — <b>{escape(name)}</b>")
+    await callback.message.answer(
+        "Теперь дата рождения ответом на это сообщение: "
+        "<code>12.05</code> или <code>12.05.1990</code>.\n"
         "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel",
+        reply_markup=_force_reply("Дата рождения"),
     )
 
 
@@ -391,15 +417,20 @@ async def add_flow_name(message: Message, state: FSMContext, db: Database) -> No
 
     name = normalize_name(text)
     if not name:
-        await message.reply("Имя не должно быть пустым. Напишите ещё раз или /cancel")
+        await message.answer(
+            "Имя не должно быть пустым. Напишите ещё раз или /cancel",
+            reply_markup=_force_reply("Имя"),
+        )
         return
 
     await state.update_data(name=name, user_id=None)
     await state.set_state(AddBirthday.waiting_date)
-    await message.reply(
+    await message.answer(
         f"Записываю «{escape(name)}».\n"
-        "Теперь дата рождения: <code>12.05</code> или <code>12.05.1990</code>.\n"
-        "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel"
+        "Теперь дата рождения ответом на это сообщение: <code>12.05</code> "
+        "или <code>12.05.1990</code>.\n"
+        "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel",
+        reply_markup=_force_reply("Дата рождения"),
     )
 
 
@@ -407,10 +438,11 @@ async def add_flow_name(message: Message, state: FSMContext, db: Database) -> No
 async def add_flow_date(message: Message, state: FSMContext, db: Database) -> None:
     parsed = parse_date((message.text or "").strip())
     if parsed is None:
-        await message.reply(
+        await message.answer(
             "Не получилось разобрать дату 🤔\n"
             "Примеры: <code>12.05</code>, <code>12.05.1990</code>, <code>12 мая 1990</code>.\n"
-            "Отмена — /cancel"
+            "Отмена — /cancel",
+            reply_markup=_force_reply("Дата рождения"),
         )
         return
 
@@ -473,15 +505,20 @@ async def pet_flow_name(message: Message, state: FSMContext, db: Database) -> No
 
     name = normalize_name(text)
     if not name:
-        await message.reply("Кличка не должна быть пустой. Напишите ещё раз или /cancel")
+        await message.answer(
+            "Кличка не должна быть пустой. Напишите ещё раз или /cancel",
+            reply_markup=_force_reply("Кличка"),
+        )
         return
 
     await state.update_data(pet_name=name)
     await state.set_state(AddPet.waiting_date)
-    await message.reply(
+    await message.answer(
         f"Записываю питомца «{escape(name)}».\n"
-        "Теперь дата рождения: <code>12.05</code> или <code>12.05.2020</code>.\n"
-        "Можно словами: <code>12 мая 2020</code>. Отмена — /cancel"
+        "Теперь дата рождения ответом на это сообщение: <code>12.05</code> "
+        "или <code>12.05.2020</code>.\n"
+        "Можно словами: <code>12 мая 2020</code>. Отмена — /cancel",
+        reply_markup=_force_reply("Дата рождения"),
     )
 
 
@@ -489,10 +526,11 @@ async def pet_flow_name(message: Message, state: FSMContext, db: Database) -> No
 async def pet_flow_date(message: Message, state: FSMContext, db: Database) -> None:
     parsed = parse_date((message.text or "").strip())
     if parsed is None:
-        await message.reply(
+        await message.answer(
             "Не получилось разобрать дату 🤔\n"
             "Примеры: <code>12.05</code>, <code>12.05.2020</code>, <code>12 мая 2020</code>.\n"
-            "Отмена — /cancel"
+            "Отмена — /cancel",
+            reply_markup=_force_reply("Дата рождения"),
         )
         return
 
