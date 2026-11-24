@@ -1,0 +1,24 @@
+services:
+  bot:
+    image: skatenok/birthday-bot:latest
+    container_name: birthday-bot
+    restart: unless-stopped
+    pull_policy: always
+    environment:
+      BOT_TOKEN: "${BOT_TOKEN:?BOT_TOKEN не задан: добавьте его в .env или переменные Stack}"
+      DB_PATH: /data/birthdays.db
+      DEFAULT_TIMEZONE: "${DEFAULT_TIMEZONE:-Europe/Moscow}"
+      DEFAULT_REMINDER_TIME: "${DEFAULT_REMINDER_TIME:-09:00}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      TZ: "${TZ:-Europe/Moscow}"
+    volumes:
+      - bot-data:/data
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot-data:

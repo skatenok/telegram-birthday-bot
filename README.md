@@ -65,6 +65,22 @@ docker compose logs -f      # смотреть логи
 3. Если в группе включены **темы (Topics)**, отправьте `/topic` внутри нужного
    топика — напоминания будут приходить туда. `/topic off` вернёт их в общий чат.
 
+## Размер образа и платформы
+
+Базовый образ — `python:3.12-alpine`. Итоговый образ занимает **~110 MB**
+против ~229 MB на `python:3.12-slim`. В нём нет pip/setuptools, кэша pip,
+`ensurepip`/`idlelib`/`lib2to3`/`tkinter`, а приложение работает от
+непривилегированного пользователя `bot`.
+
+Образ проверен на `linux/amd64` и `linux/arm64`. Собрать сразу под обе
+архитектуры и запушить в Docker Hub:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t skatenok/birthday-bot:latest \
+  -t skatenok/birthday-bot:1.1.0 --push .
+```
+
 ## Запуск в Portainer
 
 Portainer управляет Docker-хостом, на котором он установлен, поэтому контейнер
@@ -264,7 +280,8 @@ app/
 tests/              # тесты
 Dockerfile
 docker-compose.yml            # сборка из исходников (локально и Stack из Git)
-docker-compose.portainer.yml  # готовый образ (Portainer → Web editor)
+docker-compose.portainer.yml  # готовый локальный образ (Portainer → Web editor)
+docker-compose.dockerhub.yml  # образ из Docker Hub skatenok/birthday-bot
 ```
 
 ## Частые вопросы
