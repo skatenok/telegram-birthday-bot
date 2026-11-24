@@ -253,6 +253,7 @@ app/
     birthdays.py    # /add, /addpet, /list, /today, /del
     settings.py     # /settings, /topic, /time, /tz, /test ...
 Dockerfile
+docker-entrypoint.sh
 docker-compose.yml
 requirements.txt
 .env.example
@@ -276,6 +277,21 @@ README.md
 
 **Хочу другой часовой пояс.** `/tz Asia/Almaty` — используйте имя из базы
 IANA (например, `Europe/Berlin`, `Asia/Tbilisi`, `Asia/Yekaterinburg`).
+
+**`sqlite3.OperationalError: unable to open database file`.** Бот не может
+писать в каталог с базой. Обычно это bind-mount, принадлежащий `root`, тогда как
+приложение работает от uid 100. Начиная с версии **1.2.2** entrypoint сам
+выставляет владельца каталога `DB_PATH` и переключается на пользователя `bot`.
+Для старых образов или если контейнер запущен с `--user`, выдайте права вручную:
+
+```bash
+sudo mkdir -p /var/docker-volumes/birthday_bot
+sudo chown -R 100:101 /var/docker-volumes/birthday_bot
+```
+
+Если на хосте включён SELinux, добавьте `:Z` к тому:
+`- "/var/docker-volumes/birthday_bot:/data:Z"`. Проще всего использовать named
+volume (`bot-data:/data`) — права выставляются автоматически.
 
 **Можно ли добавить человека, которого нет в чате?** Да:
 `/add Иван 12.05.1990` без ответа на сообщение. Упоминание будет работать

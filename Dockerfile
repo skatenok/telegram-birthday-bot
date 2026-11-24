@@ -4,13 +4,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONUTF8=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DB_PATH=/data/birthdays.db
 
 WORKDIR /app
 
-# Непривилегированный пользователь
+# su-exec нужен, чтобы entrypoint мог выставить права на каталог базы
+# и затем запустить приложение от непривилегированного пользователя.
 RUN addgroup -S bot \
- && adduser -S -D -h /app -s /sbin/nologin -G bot bot
+ && adduser -S -D -h /app -s /sbin/nologin -G bot bot \
+ && apk add --no-cache su-exec
 
 COPY requirements.txt ./
 # --no-compile: не тащим .pyc зависимостей; pip/setuptools в рантайме не нужны
@@ -24,9 +27,13 @@ RUN pip install --no-cache-dir --no-compile -r requirements.txt \
     /usr/local/lib/python3.12/turtledemo
 
 COPY app ./app
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-RUN mkdir -p /data && chown -R bot:bot /app /data
+RUN tr -d '\r' < /usr/local/bin/docker-entrypoint.sh > /tmp/docker-entrypoint.sh \
+ && mv /tmp/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh \
+ && chmod +x /usr/local/bin/docker-entrypoint.sh \
+ && mkdir -p /data \
+ && chown -R bot:bot /app /data
 
-USER bot
-
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["python", "-m", "app"]
