@@ -38,6 +38,48 @@ def tomorrow_message(items: list[dict[str, Any]], today: date) -> str:
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------- #
+# Питомцы
+# --------------------------------------------------------------------------- #
+def _pet_name(record: dict[str, Any]) -> str:
+    return f"<b>{escape(record['name'])}</b>"
+
+
+def _pet_age_line(record: dict[str, Any], on_date: date, when: str) -> str | None:
+    year = record.get("year")
+    if year is None:
+        return None
+
+    age = on_date.year - int(year)
+    if age < 1 or age > 150:
+        return None
+    return f"Ему {when} исполняется {format_age(age)}"
+
+
+def pet_today_message(items: list[dict[str, Any]], today: date) -> str:
+    """«Сегодня день рождения хвостика Барсик🎉🥳» (+ возраст, если известен год)."""
+    blocks: list[str] = []
+    for record in items:
+        lines = [f"Сегодня день рождения хвостика {_pet_name(record)}🎉🥳"]
+        age_line = _pet_age_line(record, today, "сегодня")
+        if age_line:
+            lines.append(age_line)
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def pet_tomorrow_message(items: list[dict[str, Any]], today: date) -> str:
+    tomorrow = today + timedelta(days=1)
+    blocks: list[str] = []
+    for record in items:
+        lines = [f"Завтра день рождения хвостика {_pet_name(record)} 🎂"]
+        age_line = _pet_age_line(record, tomorrow, "завтра")
+        if age_line:
+            lines.append(age_line)
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 def test_message(chat_title: str | None = None) -> str:
     title = f" в чате «{escape(chat_title)}»" if chat_title else ""
     return (

@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+import aiosqlite
 import pytest
 
 from app import reminders, scheduler
@@ -119,6 +120,28 @@ def test_reminder_texts() -> None:
     assert "13.05" in text
 
 
+def test_pet_reminder_texts() -> None:
+    pet = {"name": "Барсик", "user_id": None, "day": 12, "month": 5, "year": 2020}
+
+    text = reminders.pet_today_message([pet], date(2026, 5, 12))
+    assert "Сегодня день рождения хвостика <b>Барсик</b>🎉🥳" in text
+    assert "Ему сегодня исполняется 6 лет" in text
+
+    no_year = {"name": "Мурка", "user_id": None, "day": 1, "month": 3, "year": None}
+    text = reminders.pet_today_message([no_year], date(2026, 5, 12))
+    assert "Сегодня день рождения хвостика <b>Мурка</b>🎉🥳" in text
+    assert "исполняется" not in text
+
+    text = reminders.pet_tomorrow_message([pet], date(2026, 5, 12))
+    assert "Завтра день рождения хвостика <b>Барсик</b>" in text
+    assert "Ему завтра исполняется 6 лет" in text
+
+    # Несколько питомцев в один день — отдельные блоки
+    second = {"name": "Рекс", "user_id": None, "day": 12, "month": 5, "year": None}
+    text = reminders.pet_today_message([pet, second], date(2026, 5, 12))
+    assert text.count("Сегодня день рождения хвостика") == 2
+
+
 # --------------------------------------------------------------------------- #
 # БД
 # --------------------------------------------------------------------------- #
@@ -160,6 +183,48 @@ async def _database_flow(tmp_path) -> None:
         await db.delete_birthday(birthday_id)
         assert await db.list_birthdays(-100500) == []
         assert await db.reminded_ids(-100500, "today", "2026-05-12") == set()
+    finally:
+        await db.close()
+
+
+def test_database_migration_adds_kind(tmp_path) -> None:
+    asyncio.run(_database_migration(tmp_path))
+
+
+async def _database_migration(tmp_path) -> None:
+    """База старой версии (без поля kind) должна мигрировать автоматически."""
+    path = tmp_path / "legacy.db"
+    async with aiosqlite.connect(path) as conn:
+        await conn.executescript(
+            """
+            CREATE TABLE birthdays (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id    INTEGER NOT NULL,
+                name       TEXT    NOT NULL,
+                day        INTEGER NOT NULL,
+                month      INTEGER NOT NULL,
+                year       INTEGER,
+                user_id    INTEGER,
+                created_by INTEGER,
+                created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO birthdays (chat_id, name, day, month)
+            VALUES (-100, 'Иван', 1, 1);
+            """
+        )
+        await conn.commit()
+
+    db = Database(str(path))
+    await db.connect()
+    try:
+        await db.ensure_chat(-100, "Старый чат")
+        rows = await db.list_birthdays(-100)
+        assert rows[0]["kind"] == "person"
+
+        pet_id = await db.add_birthday(-100, "Барсик", 2, 2, 2020, kind="pet")
+        pet = await db.get_birthday(pet_id)
+        assert pet is not None
+        assert pet["kind"] == "pet"
     finally:
         await db.close()
 
@@ -216,5 +281,41 @@ async def _scheduler_case(tmp_path) -> None:
         await scheduler._run_tick(bot, db, next_day)
         assert len(bot.sent) == 3
         assert "Мария" in bot.sent[2]["text"]
+    finally:
+        await db.close()
+
+
+def test_scheduler_pets(tmp_path) -> None:
+    asyncio.run(_scheduler_pets_case(tmp_path))
+
+
+async def _scheduler_pets_case(tmp_path) -> None:
+    db = Database(str(tmp_path / "pets.db"), "Europe/Moscow", "09:00")
+    await db.connect()
+    try:
+        await db.ensure_chat(-100800, "Питомцы")
+        await db.update_chat(-100800, topic_id=88)
+        await db.add_birthday(-100800, "Барсик", 12, 5, 2020, kind="pet")
+        await db.add_birthday(-100800, "Иван", 12, 5, 1990)
+
+        bot = _FakeBot()
+        now = datetime(2026, 5, 12, 6, 0, tzinfo=UTC)  # 09:00 МСК
+
+        await scheduler._run_tick(bot, db, now)
+        assert len(bot.sent) == 2  # люди и питомцы — разными сообщениями
+        assert all(message["message_thread_id"] == 88 for message in bot.sent)
+
+        texts = [message["text"] for message in bot.sent]
+        pet_text = next(text for text in texts if "хвостика" in text)
+        assert "<b>Барсик</b>🎉🥳" in pet_text
+        assert "Ему сегодня исполняется 6 лет" in pet_text
+
+        person_text = next(text for text in texts if "хвостика" not in text)
+        assert "Иван" in person_text
+        assert "36 лет" in person_text
+
+        # Повторно в тот же день ничего не отправляется
+        await scheduler._run_tick(bot, db, now)
+        assert len(bot.sent) == 2
     finally:
         await db.close()

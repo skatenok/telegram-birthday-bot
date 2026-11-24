@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -11,8 +12,13 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 
 from . import notifier
-from .db import Database
-from .reminders import today_message, tomorrow_message
+from .db import KIND_PET, Database
+from .reminders import (
+    pet_today_message,
+    pet_tomorrow_message,
+    today_message,
+    tomorrow_message,
+)
 from .utils import occurs_on
 
 log = logging.getLogger(__name__)
@@ -104,17 +110,42 @@ async def _process_chat(
     today_items = [item for item in today_items if int(item["id"]) not in sent_today]
     tomorrow_items = [item for item in tomorrow_items if int(item["id"]) not in sent_tomorrow]
 
-    if today_items:
-        text = today_message(today_items, today)
-        await _deliver(bot, chat_id, text, chat.get("topic_id"))
-        for item in today_items:
-            await db.claim_reminder(chat_id, int(item["id"]), "today", today.isoformat())
+    today_people = [item for item in today_items if item.get("kind") != KIND_PET]
+    today_pets = [item for item in today_items if item.get("kind") == KIND_PET]
+    tomorrow_people = [item for item in tomorrow_items if item.get("kind") != KIND_PET]
+    tomorrow_pets = [item for item in tomorrow_items if item.get("kind") == KIND_PET]
 
-    if tomorrow_items:
-        text = tomorrow_message(tomorrow_items, today)
-        await _deliver(bot, chat_id, text, chat.get("topic_id"))
-        for item in tomorrow_items:
-            await db.claim_reminder(chat_id, int(item["id"]), "tomorrow", today.isoformat())
+    await _deliver_group(
+        bot, db, chat, today_people, today_message, "today", today
+    )
+    await _deliver_group(
+        bot, db, chat, today_pets, pet_today_message, "today", today
+    )
+    await _deliver_group(
+        bot, db, chat, tomorrow_people, tomorrow_message, "tomorrow", today
+    )
+    await _deliver_group(
+        bot, db, chat, tomorrow_pets, pet_tomorrow_message, "tomorrow", today
+    )
+
+
+async def _deliver_group(
+    bot: Bot,
+    db: Database,
+    chat: dict,
+    items: list[dict],
+    builder: Callable[[list[dict], date], str],
+    kind: str,
+    today: date,
+) -> None:
+    if not items:
+        return
+
+    chat_id = int(chat["chat_id"])
+    text = builder(items, today)
+    await _deliver(bot, chat_id, text, chat.get("topic_id"))
+    for item in items:
+        await db.claim_reminder(chat_id, int(item["id"]), kind, today.isoformat())
 
 
 async def _deliver(

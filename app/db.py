@@ -10,6 +10,9 @@ import aiosqlite
 
 log = logging.getLogger(__name__)
 
+KIND_PERSON = "person"
+KIND_PET = "pet"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS chats (
     chat_id           INTEGER PRIMARY KEY,
@@ -32,6 +35,7 @@ CREATE TABLE IF NOT EXISTS birthdays (
     year       INTEGER,
     user_id    INTEGER,
     created_by INTEGER,
+    kind       TEXT    NOT NULL DEFAULT 'person',
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -90,7 +94,21 @@ class Database:
         await self._conn.execute("PRAGMA foreign_keys=ON")
         await self._conn.executescript(SCHEMA)
         await self._conn.commit()
+        await self._migrate()
         log.info("База данных готова: %s", self.path)
+
+    async def _migrate(self) -> None:
+        """Догоняющие миграции для баз, созданных прошлыми версиями."""
+        cursor = await self.conn.execute("PRAGMA table_info(birthdays)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+        await cursor.close()
+
+        if "kind" not in columns:
+            await self.conn.execute(
+                "ALTER TABLE birthdays ADD COLUMN kind TEXT NOT NULL DEFAULT 'person'"
+            )
+            await self.conn.commit()
+            log.info("Миграция: в таблицу birthdays добавлено поле kind")
 
     async def close(self) -> None:
         if self._conn is not None:
@@ -160,13 +178,14 @@ class Database:
         year: int | None = None,
         user_id: int | None = None,
         created_by: int | None = None,
+        kind: str = KIND_PERSON,
     ) -> int:
         cursor = await self.conn.execute(
             """
-            INSERT INTO birthdays (chat_id, name, day, month, year, user_id, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO birthdays (chat_id, name, day, month, year, user_id, created_by, kind)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (chat_id, name, day, month, year, user_id, created_by),
+            (chat_id, name, day, month, year, user_id, created_by, kind),
         )
         await self.conn.commit()
         return int(cursor.lastrowid)
@@ -181,11 +200,20 @@ class Database:
         )
 
     async def find_duplicate(
-        self, chat_id: int, name: str, day: int, month: int, user_id: int | None
+        self,
+        chat_id: int,
+        name: str,
+        day: int,
+        month: int,
+        user_id: int | None,
+        kind: str = KIND_PERSON,
     ) -> dict[str, Any] | None:
         rows = await self._fetchall(
-            "SELECT * FROM birthdays WHERE chat_id = ? AND day = ? AND month = ?",
-            (chat_id, day, month),
+            """
+            SELECT * FROM birthdays
+            WHERE chat_id = ? AND day = ? AND month = ? AND kind = ?
+            """,
+            (chat_id, day, month, kind),
         )
         lowered = name.casefold()
         for row in rows:

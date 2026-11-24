@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 
 GROUP_COMMANDS = [
     BotCommand(command="add", description="Добавить день рождения"),
+    BotCommand(command="addpet", description="Добавить день рождения питомца"),
     BotCommand(command="list", description="Список дней рождения"),
     BotCommand(command="today", description="У кого день рождения сегодня"),
     BotCommand(command="del", description="Удалить запись"),

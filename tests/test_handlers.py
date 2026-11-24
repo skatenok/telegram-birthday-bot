@@ -272,8 +272,6 @@ async def _add_flow_and_cancel(tmp_path) -> None:
 
 def test_bot_added_to_chat(tmp_path) -> None:
     asyncio.run(_bot_added_to_chat(tmp_path))
-
-
 async def _bot_added_to_chat(tmp_path) -> None:
     db = Database(str(tmp_path / "join.db"))
     await db.connect()
@@ -303,3 +301,62 @@ async def _bot_added_to_chat(tmp_path) -> None:
     finally:
         await bot.session.close()
         await db.close()
+
+
+def test_pet_commands(tmp_path) -> None:
+    asyncio.run(_pet_commands(tmp_path))
+
+
+async def _pet_commands(tmp_path) -> None:
+    db = Database(str(tmp_path / "pet-handlers.db"))
+    await db.connect()
+    session = FakeSession()
+    bot = Bot(token="42:TEST", session=session)
+    dp = _get_dispatcher()
+
+    try:
+        await _run(dp, bot, _command("/addpet Барсик 12.05.2020"), db)
+        assert "Записал питомца" in session.sent[-1].text
+        assert "Барсик" in session.sent[-1].text
+
+        records = await db.list_birthdays(-1001234567890)
+        pet = next(row for row in records if row["kind"] == "pet")
+        assert pet["name"] == "Барсик"
+        assert pet["year"] == 2020
+        assert pet["user_id"] is None
+        assert pet["created_by"] == 5
+
+        # Альтернативный синтаксис: /add pet ...
+        await _run(dp, bot, _command("/add pet Мурка 07.07"), db)
+        records = await db.list_birthdays(-1001234567890)
+        assert len([row for row in records if row["kind"] == "pet"]) == 2
+
+        # Человек с тем же именем и датой не считается дубликатом питомца
+        await _run(dp, bot, _command("/add Барсик 12.05.2020"), db)
+        records = await db.list_birthdays(-1001234567890)
+        assert len([row for row in records if row["kind"] == "person"]) == 1
+
+        # Пошаговый ввод: /addpet → кличка → дата
+        await _run(dp, bot, _command("/addpet"), db)
+        assert "Как зовут питомца" in session.sent[-1].text
+
+        await _run(dp, bot, _text("Рекс"), db)
+        assert "дата рождения" in session.sent[-1].text
+
+        await _run(dp, bot, _text("01.01.2021"), db)
+        assert "Записал питомца" in session.sent[-1].text
+
+        records = await db.list_birthdays(-1001234567890)
+        rex = next(row for row in records if row["name"] == "Рекс")
+        assert rex["kind"] == "pet"
+        assert rex["year"] == 2021
+
+        # В списке питомцы помечены лапкой
+        await _run(dp, bot, _command("/list"), db)
+        listing = session.sent[-1].text
+        assert "🐾 Барсик" in listing
+        assert "🐾 Рекс" in listing
+    finally:
+        await bot.session.close()
+        await db.close()
+
