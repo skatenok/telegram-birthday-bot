@@ -205,7 +205,6 @@ class Database:
         name: str,
         day: int,
         month: int,
-        user_id: int | None,
         kind: str = KIND_PERSON,
     ) -> dict[str, Any] | None:
         rows = await self._fetchall(
@@ -217,8 +216,6 @@ class Database:
         )
         lowered = name.casefold()
         for row in rows:
-            if user_id is not None and row["user_id"] == user_id:
-                return row
             if row["name"].casefold() == lowered:
                 return row
         return None

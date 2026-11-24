@@ -74,7 +74,7 @@ async def _save_birthday(
     kind: str = KIND_PERSON,
 ) -> str:
     duplicate = await db.find_duplicate(
-        int(chat["chat_id"]), name, day, month, user_id, kind=kind
+        int(chat["chat_id"]), name, day, month, kind=kind
     )
     if duplicate:
         return (
