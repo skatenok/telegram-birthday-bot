@@ -89,6 +89,11 @@ def _settings_keyboard(chat: dict) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
+                    text="📋 Показать записи", callback_data="list:show"
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="🗑 Удалить запись", callback_data="del:list:0"
                 )
             ],

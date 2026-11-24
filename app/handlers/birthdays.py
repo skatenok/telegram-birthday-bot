@@ -159,7 +159,7 @@ async def _handle_pet_add(
                 await state.set_state(AddPet.waiting_date)
                 await message.answer(
                     f"Записываю питомца «{escape(normalized)}».\n"
-                    "Теперь дата рождения ответом на это сообщение: "
+                    "Введите дату рождения ответом на это сообщение: "
                     "<code>12.05</code> или <code>12.05.2020</code>.\n"
                     "Можно словами: <code>12 мая 2020</code>. Отмена — /cancel",
                     reply_markup=_force_reply("Дата рождения"),
@@ -279,7 +279,8 @@ async def cmd_add(
                 await state.set_state(AddBirthday.waiting_date)
                 await message.answer(
                     f"Записываю «{escape(normalized)}».\n"
-                    "Теперь дата рождения: <code>12.05</code> или <code>12.05.1990</code>.\n"
+                    "Введите дату рождения ответом на это сообщение: "
+                    "<code>12.05</code> или <code>12.05.1990</code>.\n"
                     "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel",
                     reply_markup=_force_reply("Дата рождения"),
                 )
@@ -387,7 +388,7 @@ async def add_choice_callback(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.answer()
     await _edit_or_answer(callback, f"Кого добавляем? — <b>{escape(name)}</b>")
     await callback.message.answer(
-        "Теперь дата рождения ответом на это сообщение: "
+        "Введите дату рождения ответом на это сообщение: "
         "<code>12.05</code> или <code>12.05.1990</code>.\n"
         "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel",
         reply_markup=_force_reply("Дата рождения"),
@@ -428,7 +429,7 @@ async def add_flow_name(message: Message, state: FSMContext, db: Database) -> No
     await state.set_state(AddBirthday.waiting_date)
     await message.answer(
         f"Записываю «{escape(name)}».\n"
-        "Теперь дата рождения ответом на это сообщение: <code>12.05</code> "
+        "Введите дату рождения ответом на это сообщение: <code>12.05</code> "
         "или <code>12.05.1990</code>.\n"
         "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel",
         reply_markup=_force_reply("Дата рождения"),
@@ -516,7 +517,7 @@ async def pet_flow_name(message: Message, state: FSMContext, db: Database) -> No
     await state.set_state(AddPet.waiting_date)
     await message.answer(
         f"Записываю питомца «{escape(name)}».\n"
-        "Теперь дата рождения ответом на это сообщение: <code>12.05</code> "
+        "Введите дату рождения ответом на это сообщение: <code>12.05</code> "
         "или <code>12.05.2020</code>.\n"
         "Можно словами: <code>12 мая 2020</code>. Отмена — /cancel",
         reply_markup=_force_reply("Дата рождения"),
@@ -561,6 +562,19 @@ async def pet_flow_date(message: Message, state: FSMContext, db: Database) -> No
 
 @router.message(Command("list", "birthdays", "список"))
 async def cmd_list(message: Message, db: Database) -> None:
+    await _send_birthday_list(message, db)
+
+
+@router.callback_query(F.data == "list:show")
+async def show_list_callback(callback: CallbackQuery, db: Database) -> None:
+    if callback.message is None:
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+    await callback.answer()
+    await _send_birthday_list(callback.message, db)
+
+
+async def _send_birthday_list(message: Message, db: Database) -> None:
     chat = await db.ensure_chat(message.chat.id, message.chat.title)
     records = await db.list_birthdays(message.chat.id)
 
