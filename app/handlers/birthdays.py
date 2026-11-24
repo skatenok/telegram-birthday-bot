@@ -200,12 +200,23 @@ async def cmd_add(
             await _handle_pet_add(message, rest, state, db)
             return
 
-    if not args and target is None:
-        await state.set_state(AddBirthday.waiting_name)
-        await message.reply(
-            "Кого записываем? Напишите имя.\n"
-            "Дату спрошу следующим сообщением. Отмена — /cancel"
-        )
+    if not args:
+        if target is None:
+            await state.update_data(name=None, user_id=None)
+            await state.set_state(AddBirthday.waiting_name)
+            await message.reply(
+                "Кого записываем? Напишите имя.\n"
+                "Дату спрошу следующим сообщением. Отмена — /cancel"
+            )
+        else:
+            name = normalize_name(target.full_name)
+            await state.update_data(name=name, user_id=target.id)
+            await state.set_state(AddBirthday.waiting_date)
+            await message.reply(
+                f"Записываем <b>{escape(name)}</b>.\n"
+                "Теперь дата рождения: <code>12.05</code> или <code>12.05.1990</code>.\n"
+                "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel"
+            )
         return
 
     name, parsed = _split_name_and_date(args)
@@ -215,7 +226,9 @@ async def cmd_add(
         if args and not any(character.isdigit() for character in args):
             normalized = normalize_name(args)
             if normalized:
-                await state.update_data(name=normalized)
+                await state.update_data(
+                    name=normalized, user_id=target.id if target else None
+                )
                 await state.set_state(AddBirthday.waiting_date)
                 await message.reply(
                     f"Записываю «{escape(normalized)}».\n"
@@ -286,7 +299,7 @@ async def add_flow_name(message: Message, state: FSMContext, db: Database) -> No
         await message.reply("Имя не должно быть пустым. Напишите ещё раз или /cancel")
         return
 
-    await state.update_data(name=name)
+    await state.update_data(name=name, user_id=None)
     await state.set_state(AddBirthday.waiting_date)
     await message.reply(
         f"Записываю «{escape(name)}».\n"
@@ -308,6 +321,7 @@ async def add_flow_date(message: Message, state: FSMContext, db: Database) -> No
 
     data = await state.get_data()
     name = data.get("name")
+    user_id = data.get("user_id")
     if not name:
         await state.clear()
         await message.reply("Что-то потерялось, начните заново: /add")
@@ -322,7 +336,7 @@ async def add_flow_date(message: Message, state: FSMContext, db: Database) -> No
         day,
         month,
         year,
-        None,
+        user_id,
         message.from_user.id if message.from_user else None,
     )
     await state.clear()
