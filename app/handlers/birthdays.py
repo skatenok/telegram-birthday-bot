@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from ..db import KIND_PERSON, KIND_PET, Database
 from ..notifier import send_long_text
@@ -25,6 +31,7 @@ from ..utils import (
     occurs_on,
     parse_date,
     plural,
+    truncate,
 )
 
 router = Router(name="birthdays")
@@ -34,6 +41,7 @@ MAX_ENTRIES_IN_LIST = 100
 
 
 class AddBirthday(StatesGroup):
+    choosing = State()
     waiting_name = State()
     waiting_date = State()
 
@@ -182,6 +190,35 @@ async def _handle_pet_add(
     await message.reply(response)
 
 
+def _add_choice_keyboard(target) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(text="🙋 Себя", callback_data="add:self"),
+            InlineKeyboardButton(text="✏️ Ввести имя", callback_data="add:name"),
+        ]
+    ]
+    if target is not None:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"👤 {truncate(target.full_name, 30)} (из ответа)",
+                    callback_data="add:reply",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="add:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _edit_or_answer(callback: CallbackQuery, text: str) -> None:
+    if callback.message is None:
+        return
+    try:
+        await callback.message.edit_text(text)
+    except TelegramBadRequest:
+        await callback.message.answer(text)
+
+
 @router.message(Command("add", "добавить"))
 async def cmd_add(
     message: Message,
@@ -201,22 +238,18 @@ async def cmd_add(
             return
 
     if not args:
-        if target is None:
-            await state.update_data(name=None, user_id=None)
-            await state.set_state(AddBirthday.waiting_name)
-            await message.reply(
-                "Кого записываем? Напишите имя.\n"
-                "Дату спрошу следующим сообщением. Отмена — /cancel"
-            )
-        else:
-            name = normalize_name(target.full_name)
-            await state.update_data(name=name, user_id=target.id)
-            await state.set_state(AddBirthday.waiting_date)
-            await message.reply(
-                f"Записываем <b>{escape(name)}</b>.\n"
-                "Теперь дата рождения: <code>12.05</code> или <code>12.05.1990</code>.\n"
-                "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel"
-            )
+        if message.from_user is None:
+            return
+        await state.set_state(AddBirthday.choosing)
+        await state.update_data(
+            initiator=message.from_user.id,
+            target_name=target.full_name if target else None,
+            target_id=target.id if target else None,
+        )
+        await message.reply(
+            "Кого добавляем?",
+            reply_markup=_add_choice_keyboard(target),
+        )
         return
 
     name, parsed = _split_name_and_date(args)
@@ -270,6 +303,68 @@ async def cmd_add(
         message.from_user.id if message.from_user else None,
     )
     await message.reply(response)
+
+
+@router.callback_query(
+    F.data.in_({"add:self", "add:name", "add:reply", "add:cancel"})
+)
+async def add_choice_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    initiator = data.get("initiator")
+
+    if initiator is None or callback.from_user.id != int(initiator):
+        await callback.answer(
+            "Это меню открыто другим участником. Начните заново: /add",
+            show_alert=True,
+        )
+        return
+
+    action = (callback.data or "").removeprefix("add:")
+
+    if action == "cancel":
+        await state.clear()
+        await callback.answer("Отменено")
+        await _edit_or_answer(callback, "Добавление отменено.")
+        return
+
+    if action == "name":
+        await state.set_state(AddBirthday.waiting_name)
+        await state.update_data(name=None, user_id=None)
+        await callback.answer()
+        await _edit_or_answer(
+            callback,
+            "Напишите имя. Дату спрошу следующим сообщением. Отмена — /cancel",
+        )
+        return
+
+    if action == "self":
+        name = normalize_name(callback.from_user.full_name)
+        user_id = callback.from_user.id
+    elif action == "reply":
+        name = data.get("target_name")
+        user_id = data.get("target_id")
+    else:
+        await callback.answer()
+        return
+
+    if not name:
+        await callback.answer(
+            "Не удалось определить имя. Введите его вручную.", show_alert=True
+        )
+        await state.set_state(AddBirthday.waiting_name)
+        await state.update_data(name=None, user_id=None)
+        await _edit_or_answer(callback, "Напишите имя. Отмена — /cancel")
+        return
+
+    await state.update_data(name=name, user_id=user_id)
+    await state.set_state(AddBirthday.waiting_date)
+    await callback.answer()
+    await _edit_or_answer(
+        callback,
+        f"Записываем <b>{escape(name)}</b>.\n"
+        "Теперь дата рождения: <code>12.05</code> или <code>12.05.1990</code>.\n"
+        "Можно словами: <code>12 мая 1990</code>. Отмена — /cancel",
+    )
 
 
 @router.message(AddBirthday.waiting_name, F.text, ~F.text.startswith("/"))
