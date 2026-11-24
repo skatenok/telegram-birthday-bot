@@ -1,8 +1,11 @@
 # 🎂 Birthday Bot — напоминания о днях рождения в Telegram
 
-Бот для групповых чатов: хранит дни рождения участников и напоминает о них
-сообщением в чат — в общем чате или в выбранном **топике** (Topics/форуме).
-Разворачивается одной командой через `docker compose`.
+Бот для групповых чатов: хранит дни рождения участников и питомцев и напоминает
+о них сообщением в чат или в выбранный **топик** (Topics). Работает на
+aiogram 3 + SQLite. Образ собран на Alpine Linux и занимает ~110 MB.
+
+- Готовый образ: [hub.docker.com/repository/docker/skatenok/birthday-bot](https://hub.docker.com/repository/docker/skatenok/birthday-bot/general)
+- Тег: `latest`
 
 ## Возможности
 
@@ -14,152 +17,121 @@
 - 👤 Упоминание именинника через `@`-ссылку (`tg://user`) прямо в сообщении.
 - ✍️ Добавление ответом на сообщение человека — имя берётся из профиля.
 - 🧮 Возраст, «через сколько дней», сортировка по ближайшим датам.
-- 🐳 Docker + docker-compose, данные в named volume.
-- ✅ Тесты: 37 юнит- и интеграционных проверок.
+- 💾 Факт отправки сохраняется в БД — перезапуск не вызывает дублей.
+- 🐳 Небольшой Docker-образ (Alpine), данные в named volume.
 
-## Быстрый старт
+## Требования
 
-### 1. Создайте бота
+- **Вариант 2 и 3:** Docker 20.10+ и Docker Compose v2.
+- **Вариант 1:** Python 3.12+.
+- Токен бота от [@BotFather](https://t.me/BotFather).
 
-1. Напишите [@BotFather](https://t.me/BotFather) → `/newbot`.
-2. Скопируйте токен вида `123456789:AAH...`.
-
-### 2. Подготовьте проект на сервере
-
-```bash
-git clone <repo-url> birthday-bot
-cd birthday-bot
-cp .env.example .env
-nano .env     # вставьте BOT_TOKEN
-```
-
-Минимальный `.env`:
-
-```env
-BOT_TOKEN=123456789:AAH...
-DEFAULT_TIMEZONE=Europe/Moscow
-DEFAULT_REMINDER_TIME=09:00
-```
-
-### 3. Запустите
+## Вариант 1. Запуск без Docker
 
 ```bash
-docker compose up -d --build
-docker compose logs -f      # смотреть логи
+python -m venv .venv
+
+# Linux / macOS
+source .venv/bin/activate
+# Windows (PowerShell)
+# .venv\Scripts\activate
+
+pip install -r requirements.txt
+
+cp .env.example .env      # Windows: copy .env.example .env
+# откройте .env и впишите BOT_TOKEN
+
+python -m app
 ```
 
-`docker compose` автоматически читает `.env` из папки проекта и подставляет
-переменные в `docker-compose.yml`.
+Приложение само читает `.env` из текущей папки (запускайте из корня проекта).
+Переменные окружения, заданные в системе, имеют приоритет над `.env`.
+База по умолчанию создаётся в `data/birthdays.db`.
 
-### 4. Подключите к группе
+Можно обойтись без `.env`:
 
-1. Добавьте бота в группу.
-   - Права администратора не обязательны, но нужны, если в группе
-     ограничена отправка сообщений, а также для команд, меняющих настройки
-     (бот проверяет статус участника).
-   - Бот получит приветствие с подсказками сразу после добавления.
-2. Добавьте первую запись:
-   ```
-   /add Иван 12.05.1990
-   ```
-3. Если в группе включены **темы (Topics)**, отправьте `/topic` внутри нужного
-   топика — напоминания будут приходить туда. `/topic off` вернёт их в общий чат.
+```bash
+export BOT_TOKEN="123456789:AAH..."
+export DEFAULT_TIMEZONE="Europe/Moscow"
+python -m app
+```
 
-## Размер образа и платформы
+При локальном запуске бот работает через long polling, входящий порт не нужен.
 
-Базовый образ — `python:3.12-alpine`. Итоговый образ занимает **~110 MB**
-против ~229 MB на `python:3.12-slim`. В нём нет pip/setuptools, кэша pip,
-`ensurepip`/`idlelib`/`lib2to3`/`tkinter`, а приложение работает от
-непривилегированного пользователя `bot`.
+## Вариант 2. Сборка и запуск через Dockerfile
 
-Образ проверен на `linux/amd64` и `linux/arm64`. Собрать сразу под обе
-архитектуры и запушить в Docker Hub:
+Соберите образ из исходников:
+
+```bash
+docker build -t birthday-bot:latest .
+```
+
+Запустите контейнер (база — в named volume, чтобы переживала пересоздание):
+
+```bash
+docker run -d \
+  --name birthday-bot \
+  --restart unless-stopped \
+  --env-file .env \
+  -e DB_PATH=/data/birthdays.db \
+  -v birthday-bot-data:/data \
+  birthday-bot:latest
+
+docker logs -f birthday-bot
+```
+
+Параметр `-e DB_PATH=/data/birthdays.db` важен: он гарантирует, что база лежит
+внутри тома `/data`, а не внутри контейнера.
+
+Сборка сразу под amd64 и arm64 (например, для Raspberry Pi/NAS):
 
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 \
-  -t skatenok/birthday-bot:latest \
-  -t skatenok/birthday-bot:1.1.0 --push .
+  -t skatenok/birthday-bot:latest --push .
 ```
 
-## Запуск в Portainer
+## Вариант 3. docker-compose с образом из Docker Hub
 
-Portainer управляет Docker-хостом, на котором он установлен, поэтому контейнер
-запустится именно там. Есть два рабочих способа.
+Используется готовый образ
+[`skatenok/birthday-bot:latest`](https://hub.docker.com/repository/docker/skatenok/birthday-bot/general),
+собирать ничего не нужно.
 
-### Способ 1. Stack из Git-репозитория (рекомендуется)
+```bash
+cp .env.example .env      # Windows: copy .env.example .env
+# впишите BOT_TOKEN в .env
 
-Подходит, если проект лежит в GitHub / GitLab / Gitea / Forgejo.
+docker compose pull
+docker compose up -d
+docker compose logs -f
+```
 
-1. Убедитесь, что в репозитории есть `Dockerfile`, `docker-compose.yml` и папка
-   `app/`. Файл `.env` коммитить **не нужно**.
-2. В Portainer: **Stacks** → **Add stack**.
-3. **Name**: `birthday-bot`.
-4. **Build method**: `Repository`.
-5. **Repository URL**: ссылка на репозиторий (для приватного добавьте
-   *Credentials*).
-6. **Compose path**: `docker-compose.yml`.
-7. Прокрутите к **Environment variables** и добавьте:
+Что делает `docker-compose.yml`:
 
-   | Переменная | Пример значения |
-   | --- | --- |
-   | `BOT_TOKEN` | `123456789:AAH...` (обязательно) |
-   | `DEFAULT_TIMEZONE` | `Europe/Moscow` |
-   | `DEFAULT_REMINDER_TIME` | `09:00` |
-   | `LOG_LEVEL` | `INFO` |
+- запускает `skatenok/birthday-bot:latest`;
+- передаёт переменные из `.env` (часовой пояс, время напоминаний, уровень логов);
+- хранит базу в named volume `bot-data` (внутри контейнера `/data/birthdays.db`);
+- включает автоперезапуск и ограничение логов Docker (10 MB × 3 файла).
 
-8. Нажмите **Deploy the stack**.
+Опубликованный образ собран под `linux/amd64`. Если Docker-хост на ARM
+(Raspberry Pi, часть NAS), пересоберите и запушьте мультиарх-образ командой из
+раздела «Вариант 2».
 
-Portainer склонирует репозиторий, соберёт образ по `Dockerfile` и запустит
-контейнер. Значения из **Environment variables** подставляются в compose
-вместо `${BOT_TOKEN}` и т.п.
+Обновление до свежего образа:
 
-Обновление после изменений в Git: **Stacks** → `birthday-bot` →
-**Pull and redeploy**. Можно включить *GitOps updates* (опрос репозитория) или
-webhook.
+```bash
+docker compose pull
+docker compose up -d
+```
 
-### Способ 2. Без Git: собранный образ + Web editor
+## Подключение к группе
 
-У стека, созданного через **Web editor**, нет исходников, поэтому `build: .`
-там не сработает — нужен уже готовый образ.
-
-1. Соберите образ:
-
-   - на сервере с Docker:
-     ```bash
-     git clone <repo-url> birthday-bot
-     cd birthday-bot
-     docker build -t birthday-bot:latest .
-     ```
-   - или в Portainer: **Images** → **Build a new image** → Name
-     `birthday-bot:latest` → **Upload** zip/tar проекта (внутри должны быть
-     `Dockerfile`, `app/`, `requirements.txt`) → **Build**.
-
-2. Portainer: **Stacks** → **Add stack** → **Web editor**.
-3. Вставьте содержимое файла [`docker-compose.portainer.yml`](docker-compose.portainer.yml)
-   (это тот же compose, но с `image:` вместо `build:`).
-4. В **Environment variables** добавьте `BOT_TOKEN` (и при желании остальные
-   переменные) → **Deploy the stack**.
-
-После обновления кода пересоберите образ и нажмите **Re-deploy** / **Update the
-stack** с включённой опцией *Re-pull image* (если образ в registry).
-
-### Проверка и данные в Portainer
-
-- **Containers** → `birthday-bot` → **Logs**: должно быть
-  `Бот запущен: @ваш_бот`.
-- В группе отправьте `/test` — проверит доставку в настроенный топик.
-- **Volumes** → `<имя_стека>_bot-data` (например, `birthday-bot_bot-data`) —
-  здесь лежит `birthdays.db`. Не меняйте `DB_PATH` на путь вне `/data`, иначе
-  база окажется вне тома и пропадёт при пересоздании контейнера.
-- Бэкап: **Volumes** → нужный том → **Browse** (или консоль контейнера) и
-  скачайте `birthdays.db`. Либо на хосте:
-  ```bash
-  docker run --rm -v birthday-bot_bot-data:/data -v "$PWD":/backup alpine \
-    tar czf /backup/birthdays-backup.tar.gz -C /data .
-  ```
-
-Секреты (в первую очередь `BOT_TOKEN`) задавайте в **Environment variables**
-стека, а не в `.env` внутри репозитория.
+1. Добавьте бота в группу.
+   - Права администратора не обязательны, но нужны, если в группе ограничена
+     отправка сообщений (и для команд, меняющих настройки).
+   - Бот пришлёт приветствие с подсказками сразу после добавления.
+2. Добавьте первую запись: `/add Иван 12.05.1990`.
+3. Если в группе включены **темы (Topics)**, отправьте `/topic` внутри нужного
+   топика — напоминания будут приходить туда. `/topic off` вернёт их в общий чат.
 
 ## Команды
 
@@ -186,6 +158,15 @@ stack** с включённой опцией *Re-pull image* (если обра�
 доступны только администраторам чата. Добавлять дни рождения может любой
 участник.
 
+Для питомцев текст напоминания:
+
+```
+Сегодня день рождения хвостика Барсик🎉🥳
+Ему сегодня исполняется 6 лет
+```
+
+Строка с возрастом появляется, только если при добавлении указан год рождения.
+
 ## Как это работает
 
 - **Планировщик** просыпается каждые 20 секунд и проверяет, у каких чатов
@@ -195,15 +176,10 @@ stack** с включённой опцией *Re-pull image* (если обра�
 - Если бот был выключен в момент напоминания, он «догонит» его в течение
   3 часов после назначенного времени.
 - Дни рождения **29 февраля** в невисокосный год напоминаются 28 февраля.
-- **Питомцы** хранятся отдельно: в `/list` они помечены 🐾, а напоминание
-  приходит текстом:
-  ```
-  Сегодня день рождения хвостика Барсик🎉🥳
-  Ему сегодня исполняется 6 лет
-  ```
-  Строка с возрастом появляется только если при добавлении указан год рождения.
+- Питомцы помечаются 🐾 в `/list`; напоминание о них приходит отдельным
+  сообщением, не смешиваясь с поздравлениями людям.
 - Если топик удалён, бот попробует отправить сообщение в общий чат.
-- Если бота удалили из группы / ему запретили писать, напоминания для этого
+- Если бота удалили из группы или ему запретили писать, напоминания для этого
   чата автоматически отключаются (включатся при повторном добавлении).
 
 ## Настройки окружения
@@ -212,24 +188,28 @@ stack** с включённой опцией *Re-pull image* (если обра�
 | --- | --- | --- |
 | `BOT_TOKEN` | — | Токен от @BotFather (обязательно) |
 | `BOT_TOKEN_FILE` | — | Альтернатива: путь к файлу с токеном |
-| `DB_PATH` | `data/birthdays.db` | Путь к SQLite (в контейнере `/data/birthdays.db`) |
+| `DB_PATH` | `data/birthdays.db` | Путь к SQLite (в контейнере — `/data/birthdays.db`) |
 | `DEFAULT_TIMEZONE` | `Europe/Moscow` | Часовой пояс для новых чатов |
 | `DEFAULT_REMINDER_TIME` | `09:00` | Время напоминания для новых чатов |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `TZ` | `Europe/Moscow` | Часовой пояс контейнера (для логов) |
+| `TZ` | `Europe/Moscow` | Часовой пояс контейнера (влияет на время в логах) |
 
 ## Обслуживание
 
 ```bash
 docker compose logs -f                 # логи
-docker compose restart                 # перезапуск
-docker compose down                    # остановить (данные сохранятся)
-docker compose up -d --build           # обновить после git pull
+docker compose restart                 # перезапустить
+docker compose down                    # остановить (данные сохраняются)
+docker compose pull && docker compose up -d   # обновить образ
 ```
+
+> `docker compose down -v` удалит том вместе с базой. Используйте только если
+> действительно хотите стереть все данные.
 
 ### Бэкап и восстановление
 
-База лежит в named volume `bot-data`.
+База лежит в named volume (`bot-data`; полное имя — с префиксом проекта,
+например `telegram_birthday_bot_bot-data`).
 
 ```bash
 # бэкап
@@ -241,54 +221,45 @@ docker compose cp ./birthdays-backup.db bot:/data/birthdays.db
 docker compose start bot
 ```
 
-### Локальный запуск без Docker (для разработки)
+При запуске через `docker run` том называется так, как вы указали в `-v`
+(в примере выше — `birthday-bot-data`).
 
-```bash
-python -m venv .venv
-.\.venv\Scripts\activate          # Windows
-# source .venv/bin/activate       # Linux/macOS
+### Локальный запуск
 
-pip install -r requirements-dev.txt
-cp .env.example .env              # укажите BOT_TOKEN
-
-python -m app
-```
-
-### Тесты
-
-```bash
-pytest -q
-```
+Остановить бота — `Ctrl+C`. База хранится в `data/birthdays.db`; для бэкапа
+достаточно скопировать этот файл (вместе с `-wal`/`-shm`, если они есть).
 
 ## Структура проекта
 
 ```
 app/
-  __main__.py       # запуск бота, диспетчер, команды меню
-  config.py         # переменные окружения
+  __main__.py       # запуск бота, диспетчер, меню команд
+  config.py         # переменные окружения и чтение .env
   db.py             # SQLite-хранилище
   utils.py          # разбор дат, склонения, форматирование
-  reminders.py      # тексты напоминаний
+  reminders.py      # тексты напоминаний (люди и питомцы)
   notifier.py       # отправка с поддержкой топиков
   scheduler.py      # планировщик напоминаний
   permissions.py    # проверка прав
   middlewares.py    # сброс диалога по команде
   handlers/
-    common.py       # /start, /help, реакция на добавление в группу
-    birthdays.py    # /add, /list, /today, /del
+    common.py       # /start, /help, добавление/удаление из группы
+    birthdays.py    # /add, /addpet, /list, /today, /del
     settings.py     # /settings, /topic, /time, /tz, /test ...
-tests/              # тесты
 Dockerfile
-docker-compose.yml            # сборка из исходников (локально и Stack из Git)
-docker-compose.portainer.yml  # готовый локальный образ (Portainer → Web editor)
-docker-compose.dockerhub.yml  # образ из Docker Hub skatenok/birthday-bot
+docker-compose.yml
+requirements.txt
+.env.example
+.dockerignore
+.gitignore
+README.md
 ```
 
 ## Частые вопросы
 
 **Бот не видит команды в группе.** Privacy mode не мешает: команды и
-сообщения-ответы бот получает всегда. Проверьте, что бот всё ещё в группе и что
-в ней разрешена отправка сообщений. Если команд несколько ботов, используйте
+сообщения-ответы бот получает всегда. Проверьте, что бот ещё в группе и что
+в ней разрешена отправка сообщений. Если в чате несколько ботов, используйте
 `/add@имя_бота Иван 12.05.1990`.
 
 **Напоминания не приходят.** Проверьте `/settings`: включены ли напоминания,
@@ -298,10 +269,9 @@ docker-compose.dockerhub.yml  # образ из Docker Hub skatenok/birthday-bot
 **Хочу другой часовой пояс.** `/tz Asia/Almaty` — используйте имя из базы
 IANA (например, `Europe/Berlin`, `Asia/Tbilisi`, `Asia/Yekaterinburg`).
 
-**Можно ли добавить человека, которого нет в чате?** Да: `/add Иван 12.05.1990`
-без ответа на сообщение. Упоминание будет работать только для участников
-чата.
+**Можно ли добавить человека, которого нет в чате?** Да:
+`/add Иван 12.05.1990` без ответа на сообщение. Упоминание будет работать
+только для участников чата.
 
-**Как обновить бота в Portainer?** Для Stack из Git — **Pull and redeploy**.
-Для Web editor — пересоберите образ и нажмите **Re-deploy** (при образе из
-registry включите *Re-pull image*). Том `bot-data` при этом сохраняется.
+**Как обновить бота?** `docker compose pull && docker compose up -d`. Том
+`bot-data` при этом сохраняется, миграции базы выполняются автоматически.

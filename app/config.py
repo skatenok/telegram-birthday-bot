@@ -18,6 +18,33 @@ class Config:
     log_level: str
 
 
+def _load_dotenv(path: Path = Path(".env")) -> None:
+    """Простой загрузчик .env для локального запуска без Docker.
+
+    Уже заданные переменные окружения не перетираются.
+    """
+    if not path.is_file():
+        return
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        line = line.removeprefix("export ")
+
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        if key:
+            os.environ.setdefault(key, value)
+
+
 def _read_token() -> str:
     token = os.getenv("BOT_TOKEN", "").strip()
     token_file = os.getenv("BOT_TOKEN_FILE", "").strip()
@@ -27,6 +54,7 @@ def _read_token() -> str:
 
 
 def load_config() -> Config:
+    _load_dotenv()
     token = _read_token()
     if not token:
         raise RuntimeError(
