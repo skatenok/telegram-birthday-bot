@@ -1,5 +1,5 @@
 """Роутеры бота."""
 
-from . import birthdays, common, settings
+from . import birthdays, common, delete_menu, settings
 
-__all__ = ["birthdays", "common", "settings"]
+__all__ = ["birthdays", "common", "delete_menu", "settings"]

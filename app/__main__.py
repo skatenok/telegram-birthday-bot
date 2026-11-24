@@ -16,7 +16,7 @@ from aiogram.types import (
 
 from .config import load_config
 from .db import Database
-from .handlers import birthdays, common, settings
+from .handlers import birthdays, common, delete_menu, settings
 from .middlewares import ClearStateOnCommand
 from .scheduler import scheduler_loop
 
@@ -69,7 +69,12 @@ async def main() -> None:
     bot = Bot(config.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dispatcher = Dispatcher(db=db, config=config)
     dispatcher.message.outer_middleware(ClearStateOnCommand())
-    dispatcher.include_routers(common.router, birthdays.router, settings.router)
+    dispatcher.include_routers(
+        common.router,
+        birthdays.router,
+        settings.router,
+        delete_menu.router,
+    )
 
     await _setup_commands(bot)
     me = await bot.get_me()

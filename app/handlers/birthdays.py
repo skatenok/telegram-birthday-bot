@@ -19,6 +19,7 @@ from ..db import KIND_PERSON, KIND_PET, Database
 from ..notifier import send_long_text
 from ..permissions import can_manage_chat
 from ..reminders import pet_today_message, today_message
+from .delete_menu import send_delete_menu
 from ..utils import (
     days_until,
     escape,
@@ -609,7 +610,19 @@ async def cmd_list(message: Message, db: Database) -> None:
     lines.append("")
     lines.append("Удалить запись: <code>/del #id</code>")
 
-    await send_long_text(message, lines)
+    await send_long_text(
+        message,
+        lines,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🗑 Удалить запись", callback_data="del:list:0"
+                    )
+                ]
+            ]
+        ),
+    )
 
 
 @router.message(Command("today", "сегодня"))
@@ -638,12 +651,7 @@ async def cmd_del(message: Message, command: CommandObject, bot: Bot, db: Databa
     query = (command.args or "").strip().lstrip("#")
 
     if not query:
-        await message.reply(
-            "Кого удаляем?\n"
-            "• <code>/del 5</code> — по номеру записи\n"
-            "• <code>/del Иван</code> — по имени\n"
-            "Номера записей видны в /list"
-        )
+        await send_delete_menu(message, db)
         return
 
     record = None

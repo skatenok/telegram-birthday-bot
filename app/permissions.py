@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 ADMIN_STATUSES = {"creator", "administrator"}
 ANONYMOUS_ADMIN_ID = 1087968824
@@ -28,3 +28,12 @@ async def can_manage_chat(bot: Bot, message: Message) -> bool:
     if user.id == ANONYMOUS_ADMIN_ID:
         return True
     return await is_admin(bot, message.chat.id, user.id)
+
+
+async def can_manage_callback(bot: Bot, callback: CallbackQuery) -> bool:
+    """Права администратора для нажатия кнопки."""
+    if callback.message is None:
+        return False
+    if callback.from_user.id == ANONYMOUS_ADMIN_ID:
+        return True
+    return await is_admin(bot, callback.message.chat.id, callback.from_user.id)

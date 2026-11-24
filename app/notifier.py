@@ -7,7 +7,7 @@ import logging
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardMarkup, Message
 
 from .utils import chunk_lines
 
@@ -70,7 +70,10 @@ async def send_long_text(
     message: Message,
     lines: list[str],
     limit: int = 3800,
+    reply_markup: InlineKeyboardMarkup | None = None,
 ) -> None:
     """Отправляет длинный текст несколькими сообщениями (ответом на команду)."""
-    for chunk in chunk_lines(lines, limit=limit):
-        await message.answer(chunk)
+    chunks = chunk_lines(lines, limit=limit)
+    for index, chunk in enumerate(chunks):
+        markup = reply_markup if index == len(chunks) - 1 else None
+        await message.answer(chunk, reply_markup=markup)
